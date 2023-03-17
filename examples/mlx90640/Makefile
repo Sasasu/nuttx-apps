@@ -29,7 +29,7 @@ MODULE    = $(CONFIG_EXAMPLES_MLX90640)
 
 # Hello, World! Example
 
-MAINSRC = mlx90640_main.c MLX90640_API.c
+MAINSRC = mlx90640_main.c MLX90640_API.c MLX90640_I2C_Driver.c
 
 # Build with WebAssembly when CONFIG_INTERPRETERS_WAMR is enabled
 
