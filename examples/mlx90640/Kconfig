@@ -1,0 +1,29 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config EXAMPLES_MLX90640
+	tristate "MLX90640"
+	default n
+	---help---
+		should enable
+
+if EXAMPLES_MLX90640
+
+config EXAMPLES_MLX90640_PROGNAME
+	string "Program name"
+	default "mlx90640"
+	---help---
+		This is the name of the program that will be used when the NSH ELF
+		program is installed.
+
+config EXAMPLES_MLX90640_PRIORITY
+	int "Hello task priority"
+	default 100
+
+config EXAMPLES_MLX90640_STACKSIZE
+	int "Hello stack size"
+	default DEFAULT_TASK_STACKSIZE
+
+endif
