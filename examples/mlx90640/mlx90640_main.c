@@ -89,11 +89,6 @@ int main(int argc, FAR char *argv[]) {
     exit(-1);
   }
 
-  for (int i = 0; i < 5; i++) {
-    fprintf(stderr, "brokenPixels %d\n", params.brokenPixels[i]);
-    fprintf(stderr, "outlierPixels %d\n", params.outlierPixels[i]);
-  }
-
   MLX90640_I2CFreqSet(1000); // bump to 1MHz
   return 0;
 

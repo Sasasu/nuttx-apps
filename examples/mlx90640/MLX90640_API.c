@@ -1293,7 +1293,6 @@ static void ExtractCILCParameters(uint16_t *eeData, paramsMLX90640 *mlx90640)
 }
 
 //------------------------------------------------------------------------------
-#include <stdio.h>
 
 static int ExtractDeviatingPixels(uint16_t *eeData, paramsMLX90640 *mlx90640)
 {
@@ -1314,12 +1313,12 @@ static int ExtractDeviatingPixels(uint16_t *eeData, paramsMLX90640 *mlx90640)
     {
         if(eeData[pixCnt+64] == 0)
         {
-            //mlx90640->brokenPixels[brokenPixCnt] = pixCnt;
+            mlx90640->brokenPixels[brokenPixCnt] = pixCnt;
             brokenPixCnt = brokenPixCnt + 1;
         }    
         else if((eeData[pixCnt+64] & 0x0001) != 0)
         {
-            //mlx90640->outlierPixels[outlierPixCnt] = pixCnt;
+            mlx90640->outlierPixels[outlierPixCnt] = pixCnt;
             outlierPixCnt = outlierPixCnt + 1;
         }    
         
@@ -1327,18 +1326,15 @@ static int ExtractDeviatingPixels(uint16_t *eeData, paramsMLX90640 *mlx90640)
         
     } 
 
-    fprintf(stderr, "outlierPixCnt = %d\n", outlierPixCnt);
-    fprintf(stderr, "brokenPixCnt = %d\n", brokenPixCnt);
-    
     if(brokenPixCnt > 4)  
     {
         warn = -MLX90640_BROKEN_PIXELS_NUM_ERROR;
     }         
-    else if(outlierPixCnt > 5)  
+    else if(outlierPixCnt > 4)  
     {
         warn = -MLX90640_OUTLIER_PIXELS_NUM_ERROR;
     }
-    else if((brokenPixCnt + outlierPixCnt) > 5)  
+    else if((brokenPixCnt + outlierPixCnt) > 4)  
     {
         warn = -MLX90640_BAD_PIXELS_NUM_ERROR;
     } 
