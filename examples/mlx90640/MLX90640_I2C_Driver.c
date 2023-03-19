@@ -51,7 +51,7 @@ int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress,
       .addr = slaveAddr,
       .flags = 0,
       .length = 2,
-      .buffer = (uint8_t *)&startAddress,
+      .buffer = (uint8_t[]){startAddress >> 8, startAddress & 0xFF},
       .frequency = I2C_freq,
   };
   struct i2c_msg_s i2c_r_msg = {
@@ -72,16 +72,25 @@ int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress,
     return -1;
   }
 
+  for (int i = 0; i < nMemAddressRead; i++) {
+    data[i] = (data[i] << 8) | (data[i] >> 8);
+  }
+
   return 0;
 }
 
 int MLX90640_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint16_t data) {
-  uint16_t txbuffer[2] = {writeAddress, data};
+  uint8_t txbuffer[4] = {
+      writeAddress >> 8,
+      writeAddress & 0xFF,
+      data >> 8,
+      data & 0xFF,
+  };
 
   struct i2c_msg_s i2c_msg = {
       .addr = slaveAddr,
       .flags = 0,
-      .length = 4,
+      .length = sizeof(txbuffer),
       .buffer = (uint8_t *)txbuffer,
       .frequency = I2C_freq,
   };
