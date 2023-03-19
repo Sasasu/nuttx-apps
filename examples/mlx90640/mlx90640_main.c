@@ -65,54 +65,86 @@ void dump_hex(int size, uint8_t *data, FILE *out) {
 
 int main(int argc, FAR char *argv[]) {
   MLX90640_I2CInit();
+  MLX90640_I2CFreqSet(400); // max frequency for eeprom is 400kHz
 
   int ret = MLX90640_I2CGeneralReset();
   if (ret < 0) {
-    fprintf(stderr, "reset %d\n", errno);
+    fprintf(stdout, "reset %d\n", errno);
     exit(-1);
   }
 
-  // max frequency for eeprom is 400kHz
-  MLX90640_I2CFreqSet(50);
-  fprintf(stderr, "reading eeprom useing %dkHz\n", 50);
   ret = MLX90640_DumpEE(addr, frame);
   if (ret < 0) {
-    fprintf(stderr, "read %d\n", errno);
+    fprintf(stdout, "read %d\n", errno);
     exit(-1);
   }
-
-  dump_hex(MLX90640_EEPROM_DUMP_NUM * 2, (uint8_t *)frame, stderr);
 
   ret = MLX90640_ExtractParameters(frame, &params);
   if (ret < 0) {
-    fprintf(stderr, "extract params %d\n", ret);
+    fprintf(stdout, "extract params %d\n", ret);
     exit(-1);
   }
 
   MLX90640_I2CFreqSet(1000); // bump to 1MHz
-  return 0;
 
   while (true) {
     // request a frame
     ret = MLX90640_TriggerMeasurement(addr);
     if (ret < 0) {
-      fprintf(stderr, "request frame %d\n", errno);
+      fprintf(stdout, "request frame %d\n", errno);
       exit(-1);
     }
 
     for (int i = 0; i < 2; i++) {
       ret = MLX90640_GetFrameData(addr, frame);
       if (ret < 0) {
-        fprintf(stderr, "frame read %d page %d\n", errno, i);
+        fprintf(stdout, "frame read %d page %d\n", errno, i);
         exit(-1);
       }
 
-      float vdd = MLX90640_GetVdd(frame, &params);
       float ta = MLX90640_GetTa(frame, &params);
 
       MLX90640_CalculateTo(frame, &params, emissivity, ta - TA_SHIFT,
                            temperatures);
     }
+
+#define ANSI_COLOR_RED "\x1b[31m"
+#define ANSI_COLOR_GREEN "\x1b[32m"
+#define ANSI_COLOR_YELLOW "\x1b[33m"
+#define ANSI_COLOR_BLUE "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN "\x1b[36m"
+#define ANSI_COLOR_RESET "\x1b[0m"
+
+    for (int x = 0; x < 32; x++) {
+      fprintf(stdout, "\n %s", ANSI_COLOR_RESET);
+      for (int y = 0; y < 24; y++) {
+        float t = temperatures[32 * (23 - y) + x];
+
+        if (t > 99.99)
+          t = 99.99;
+
+        if (t > 29.0) {
+          fprintf(stdout, ANSI_COLOR_MAGENTA "%3.1f " ANSI_COLOR_RESET, t);
+        } else if (t > 26.0) {
+          fprintf(stdout, ANSI_COLOR_RED "%3.1f " ANSI_COLOR_RESET, t);
+        } else if (t > 21.0) {
+          fprintf(stdout, ANSI_COLOR_YELLOW "%3.1f " ANSI_COLOR_YELLOW, t);
+        } else if (t < 10.0) {
+          fprintf(stdout, ANSI_COLOR_BLUE "%3.1f " ANSI_COLOR_RESET, t);
+        } else if (t < 17.0) {
+          fprintf(stdout, ANSI_COLOR_CYAN "%3.1f " ANSI_COLOR_RESET, t);
+        } else if (t < 22.0) {
+          fprintf(stdout, ANSI_COLOR_GREEN "%3.1f " ANSI_COLOR_RESET, t);
+        } else {
+          fprintf(stdout, ANSI_COLOR_RED "%3.1f " ANSI_COLOR_RESET, t);
+        }
+      }
+    }
+
+    fprintf(stdout, "\n %s", ANSI_COLOR_RESET);
+    sleep(1);
   }
+
   return 0;
 }
