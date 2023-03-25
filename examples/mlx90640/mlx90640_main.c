@@ -23,6 +23,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/nx/nxfonts.h>
 #include <nuttx/video/fb.h>
 
 #include <fcntl.h>
@@ -61,10 +62,12 @@
 
 #define TA_SHIFT 8
 float emissivity = 0.95;
-float temperatures[MLX90640_PIXEL_NUM] = {};
+float temperatures[MLX90640_PIXEL_NUM] = {0};
+uint16_t temperatures_p[MLX90640_PIXEL_NUM] = {0};
 int8_t addr = 0x33;
 uint16_t frame[834] = {};
 paramsMLX90640 params = {};
+sem_t sem;
 
 void dump_hex(int size, uint8_t *data, FILE *out) {
   const char *hex = "0123456789ABCDEF";
@@ -84,6 +87,61 @@ void dump_hex(int size, uint8_t *data, FILE *out) {
   putc('\n', out);
 }
 
+uint32_t I(uint32_t p00, uint32_t p01, uint32_t p10, uint32_t p11, int x,
+           int y) {
+  int32_t dx = 10;
+  int32_t dy = 10;
+  int32_t p0 = p00 * (dx - x) * (dy - y) + p10 * x * (dy - y);
+  int32_t p1 = p01 * (dx - x) * y + p11 * x * y;
+  int32_t p = p0 + p1;
+  return p / (dx * dy);
+}
+
+uint16_t get_t_3224(int x, int y) { return temperatures_p[32 * (23 - y) + x]; }
+
+uint16_t get_t_bound_check_3224(int x, int y) {
+  if (x < 0)
+    x = 0;
+
+  if (y < 0)
+    y = 0;
+
+  if (x >= 32)
+    x = 31;
+
+  if (y >= 24)
+    y = 23;
+
+  return get_t_3224(x, y);
+}
+
+uint16_t get_t_320x240(int x, int y) {
+  int xx = x / 10;
+  int yy = y / 10;
+
+  uint16_t X0Y0 = get_t_bound_check_3224(xx, yy);
+  uint16_t X1Y0 = get_t_bound_check_3224(xx + 1, yy);
+  uint16_t X0Y1 = get_t_bound_check_3224(xx, yy + 1);
+  uint16_t X1Y1 = get_t_bound_check_3224(xx + 1, yy + 1);
+
+#define R(X) ((X & 0b11111 << 11) >> 10)
+#define G(X) ((X & 0b11111 << 6) >> 5)
+#define B(X) ((X & 0b11111) >> 0)
+
+  int offx = x - xx * 10;
+  int offy = y - yy * 10;
+
+  uint32_t g = I(X0Y0, X0Y1, X1Y0, X1Y1, offx, offy);
+
+  g = ((float)g / INT16_MAX) * 0b11111;
+  if (g > 0b11111)
+    g = 0b11111;
+
+  g &= 0b11111;
+
+  return g << 11 | g << 6 | g;
+}
+
 #define FB_DEV "/dev/fb0"
 
 struct fb_state_s {
@@ -92,8 +150,11 @@ struct fb_state_s {
   struct fb_planeinfo_s pinfo;
   FAR void *fbmem;
 } fb;
+NXHANDLE font;
 
 void init_fb(void) {
+  font = nxf_getfonthandle(FONTID_X11_MISC_FIXED_6X10);
+
   fb.fd = open(FB_DEV, O_RDWR);
   if (fb.fd < 0) {
     syslog(LOG_ALERT, "failed to open %s", FB_DEV);
@@ -133,57 +194,109 @@ void init_fb(void) {
     syslog(LOG_ALERT, "MMAP %d", errno);
     exit(-1);
   }
+  memset(fb.fbmem, 0x00, fb.pinfo.fblen);
 }
 
-struct fb_area_s area = {.x = 0, .y = 0, .h = 240, .w = 320};
-
 void rander_fb(void) {
-  float max = -40, min = 340;
+  float max = -100, min = 500;
+  int maxX = 0, maxY = 0, minX = 0, minY = 0;
   for (int x = 0; x < 32; x++) {
     for (int y = 0; y < 24; y++) {
       float t = temperatures[32 * y + x];
-      if (t > max)
+      if (t > max) {
         max = t;
-      if (t < min)
+        maxX = x;
+        maxY = y;
+      }
+      if (t < min) {
         min = t;
+        minX = x;
+        minY = y;
+      }
     }
   }
 
-  uint16_t MAXR = 63, MAXG = 127, MAXB = 63; // RGB565
   for (int x = 0; x < 32; x++) {
     for (int y = 0; y < 24; y++) {
-      float t = temperatures[32 * (23 - y) + x];
+      int index = (32 * (23 - y) + x);
+      float t = temperatures[index];
 
       int X = ((t - min) / (max - min)) * 1024;
-      int B = (-1024.0 / 116281) * X * X + (2048.0 / 341) * X - 0;
-      int G =
-          (-512.0 / 58311) * X * X + (232960.0 / 19437) * X - (524288.0 / 171);
-      int R =
-          (-512.0 / 58311) * X * X + (1048064.0 / 58311) * X - (465920.0 / 57);
+      int32_t G = (INT16_MAX / 1024) * X;
+      temperatures_p[index] = G;
+    }
+  }
 
-      B = (MAXB * B) / 1024;
-      G = (MAXG * G) / 1024;
-      R = (MAXR * R) / 1024;
+  maxX = maxX * 10;
+  maxY = (23 - maxY) * 10;
+  minX = minX * 10;
+  minY = (23 - minY) * 10;
 
-      uint16_t P = (uint16_t)B << 11 | (uint16_t)G << 6 | (uint16_t)R;
+  uint16_t *screen = fb.fbmem;
+  for (int x = 0; x < 320; x++) {
+    for (int y = 0; y < 240; y++) {
+      if (y < 10) {
+        continue;
+      }
 
-      for (int fx = 0; fx < 10; fx++) {
-        for (int fy = 0; fy < 10; fy++) {
-          int px = x * 10 + fx;
-          int py = y * 10 + fy;
+      if (abs(x - minX) < 3 && abs(y - minY) < 3) {
+        screen[320 * y + x] = (uint16_t)0b11111 << 0;
+      } else if (abs(x - maxX) < 3 && abs(y - maxY) < 3) {
+        screen[320 * y + x] = (uint16_t)0b11111 << 11;
+      } else {
+        screen[320 * y + x] = get_t_320x240(x, y);
+      }
+    }
+  }
 
-          uint16_t *screen = fb.fbmem;
-          screen[320 * py + px] = P;
+  // x -> [0, 320)
+  // y -> [0, 10)
+  // 屏幕底边
+  for (int x = 0; x < 320; x++) {
+    for (int y = 0; y < 10; y++) {
+      // screen[320 * y + x] = (uint16_t)0b1111111 << 6;
+      screen[320 * y + x] = INT16_MAX; // miku 蓝
+    }
+  }
+
+  {
+    char b[22] = {};
+    sprintf(b, "MAX %3.1fC   MIN %3.1fC", max, min);
+    for (int i = 0; i < sizeof(b); i++) {
+      if (b[i] == ' ' || b[i] == 0)
+        continue;
+
+      // 宽度 19 * 6 = 114 像素
+      const struct nx_fontbitmap_s *bitmap = nxf_getbitmap(font, b[i]);
+      for (int fy = 0; fy < 10; fy++) {
+        for (int fx = 0; fx < 6; fx++) {
+          bool bit = (bitmap->bitmap[fy]) & (1 << (8 - fx));
+          if (bit) {
+            int y = 9 - fy;
+            int x = 310 - (i * 7 + fx);
+            screen[320 * y + x] = i < 10 ? 0b11111 << 11 : 0b11111;
+          }
         }
       }
     }
-
-    int ret = ioctl(fb.fd, FBIO_UPDATE, (uintptr_t)&area);
-    if (ret < 0) {
-      int errcode = errno;
-      fprintf(stderr, "ERROR: ioctl(FBIO_UPDATE) failed: %d\n", errcode);
-    }
   }
+
+  static struct fb_area_s area = {.x = 0, .y = 0, .h = 240, .w = 320};
+  int ret = ioctl(fb.fd, FBIO_UPDATE, (uintptr_t)&area);
+  if (ret < 0) {
+    int errcode = errno;
+    fprintf(stderr, "ERROR: ioctl(FBIO_UPDATE) failed: %d\n", errcode);
+    return;
+  }
+}
+
+int fb_update(int _, char **__) {
+  while (true) {
+    sem_wait(&sem);
+    rander_fb();
+  }
+
+  return 0;
 }
 
 void rander_stdout(void) {
@@ -246,9 +359,13 @@ int main(int argc, FAR char *argv[]) {
     exit(-1);
   }
 
-  MLX90640_I2CFreqSet(1000); // bump to 1MHz
+  MLX90640_I2CFreqSet(1500);           // bump to 1MHz
+  MLX90640_SetRefreshRate(addr, 0x07); // 0x06 = 32Hz, 0x07 = 64Hz
 
   init_fb();
+
+  sem_init(&sem, 0, 0);
+  task_create("rander", 100, 4096, fb_update, NULL);
 
   while (true) {
     // request a frame
@@ -266,19 +383,10 @@ int main(int argc, FAR char *argv[]) {
       }
 
       float ta = MLX90640_GetTa(frame, &params);
-
-      struct timespec s = {}, e = {};
-      clock_gettime(CLOCK_REALTIME, &s);
       MLX90640_CalculateTo(frame, &params, emissivity, ta - TA_SHIFT,
                            temperatures);
-      clock_gettime(CLOCK_REALTIME, &e);
-      clock_timespec_subtract(&e, &s, &s);
-
-      fprintf(stdout, "\nrander time %ldms\n",
-              SEC_TO_MS(s.tv_sec) + NS_TO_MS(s.tv_nsec));
+      sem_post(&sem);
     }
-
-    rander_fb();
   }
 
   return 0;

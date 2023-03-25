@@ -41,9 +41,9 @@
 #define BOARD_GPIO_SW_2_DEV "/dev/gpio2"
 
 #define SW_POOL_INTERVAL 10 // 10ms
-#define SW_DEBOUNCE 5       // < 50ms
-#define SW_SHORT 100        // < 100ms
-#define SW_LONG 200         // > 200ms
+#define SW_DEBOUNCE 2       // < 50ms
+#define SW_SHORT 20         // < 100ms
+#define SW_LONG 20          // > 200ms
 
 #define SW_BOUNCE 0
 #define SW_SHORT_PRESS 1
@@ -108,12 +108,12 @@ void sw2(void) {
 
   // key release
   if (last == 1 && current == 0) {
-    if (SW_DEBOUNCE < 5) {         // < 50ms
-      key_status = SW_BOUNCE;      // ignore
-    } else if (SW_SHORT < 100) {   // < 1000ms
+    if (count < SW_DEBOUNCE) {
+      key_status = SW_BOUNCE; // ignore
+    } else if (count < SW_SHORT) {
       key_status = SW_SHORT_PRESS; // short press
-    } else {                       // > 1000ms
-      key_status = SW_LONG_PRESS;  // long press
+    } else {
+      key_status = SW_LONG_PRESS; // long press
     }
 
     count = 0;
@@ -139,7 +139,7 @@ int main(int argc, FAR char *argv[]) {
   init_gpio();
 
   while (true) {
-    usleep(1000 * SW_POOL_INTERVAL);
+    usleep(100 * SW_POOL_INTERVAL);
 
     sw1();
     sw2();
