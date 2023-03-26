@@ -215,40 +215,10 @@ static inline uint16_t get_t_320x240(int x, int y) {
   return g << 11 | g << 6 | g;
 }
 
+int maxid = 0, minid = 0;
+int maxX = 0, maxY = 0, minX = 0, minY = 0;
+
 void render_fb(void) {
-  int maxid = 0, minid = 0;
-  int maxX = 0, maxY = 0, minX = 0, minY = 0;
-  for (int i = 0; i < (32 * 24); i++) {
-    int t = temperatures[i];
-    if (t > temperatures[maxid]) {
-      maxid = i;
-    }
-    if (t < temperatures[minid]) {
-      minid = i;
-    }
-  }
-
-  maxX = maxid % 32;
-  maxY = maxid / 32;
-  minX = minid % 32;
-  minY = minid / 32;
-
-  int32_t union_arg = (temperatures[maxid] - temperatures[minid]);
-  for (int x = 0; x < 32; x++) {
-    for (int y = 0; y < 24; y++) {
-      int index = (32 * (23 - y) + x);
-
-      int32_t t = temperatures[index];
-      int32_t X = ((t - temperatures[minid]) * INT16_MAX) / union_arg;
-      temperatures_p[index] = X;
-    }
-  }
-
-  maxX = maxX * 10;
-  maxY = (23 - maxY) * 10;
-  minX = minX * 10;
-  minY = (23 - minY) * 10;
-
   uint16_t *screen = fb.fbmem;
   for (int x = 0; x < 320; x++) {
 #define STATUS_BG 0x0000000
@@ -382,6 +352,28 @@ void render_stdout(void) {
   fprintf(stdout, "\n %s", ANSI_COLOR_RESET);
 }
 
+bool update_in_page(int pixelNumber, int subPage) {
+  if ((pixelNumber / 32) % 2 == 1) {
+    // odd
+    if (subPage == 1 && pixelNumber % 2 == 1) {
+      return false;
+    }
+    if (subPage == 0 && pixelNumber % 2 == 0) {
+      return false;
+    }
+  } else {
+    // even
+    if (subPage == 1 && pixelNumber % 2 == 0) {
+      return false;
+    }
+    if (subPage == 0 && pixelNumber % 2 == 1) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 int main(int argc, FAR char *argv[]) {
   MLX90640_I2CInit();
   MLX90640_I2CFreqSet(400); // max frequency for eeprom is 400kHz
@@ -425,9 +417,49 @@ int main(int argc, FAR char *argv[]) {
       MLX90640_CalculateTo(frame, &params, emissivity, ta - TA_SHIFT,
                            temperatures_f);
 
+      int subPage = frame[833];
       for (int x = 0; x < (32 * 24); x++) {
-        temperatures[x] = temperatures_f[x] * 1024; // [-40, 350]
+        if (update_in_page(x, subPage)) {
+          temperatures[x] = temperatures_f[x] * 1024; // [-40, 350]
+        }
       }
+
+      for (int ii = 0; ii < (32 * 24); ii++) {
+        if (!update_in_page(ii, subPage)) {
+          continue;
+        }
+        int t = temperatures[ii];
+        if (t > temperatures[maxid]) {
+          maxid = ii;
+        }
+        if (t < temperatures[minid]) {
+          minid = ii;
+        }
+      }
+
+      maxX = maxid % 32;
+      maxY = maxid / 32;
+      minX = minid % 32;
+      minY = minid / 32;
+
+      int32_t union_arg = (temperatures[maxid] - temperatures[minid]);
+      for (int x = 0; x < 32; x++) {
+        for (int y = 0; y < 24; y++) {
+          int index = (32 * (23 - y) + x);
+          if (!update_in_page(index, subPage)) {
+            continue;
+          }
+
+          int32_t t = temperatures[index];
+          int32_t X = ((t - temperatures[minid]) * INT16_MAX) / union_arg;
+          temperatures_p[index] = X;
+        }
+      }
+
+      maxX = maxX * 10;
+      maxY = (23 - maxY) * 10;
+      minX = minX * 10;
+      minY = (23 - minY) * 10;
 
       wakeup_render();
     }
