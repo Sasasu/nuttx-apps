@@ -474,6 +474,27 @@ void MLX90640_CalculateTo(uint16_t *frameData, const paramsMLX90640 *params, flo
         {
           pattern = chessPattern; 
         }               
+
+		if (pattern == chessPattern) {
+			if ((pixelNumber / 32) % 2 == 1) {
+				// odd
+				if (subPage == 1 && pixelNumber % 2 == 1) {
+					continue;
+				}
+				if (subPage == 0 && pixelNumber % 2 == 0) {
+					continue;
+				}
+			} else {
+				// even
+				if (subPage == 1 && pixelNumber % 2 == 0) {
+					continue;
+				}
+				if (subPage == 0 && pixelNumber % 2 == 1){
+					continue;
+				}
+			}
+		}
+
         
         if(pattern == frameData[833])
         {    
@@ -587,6 +608,7 @@ void MLX90640_GetImage(uint16_t *frameData, const paramsMLX90640 *params, float 
         {
           pattern = chessPattern; 
         }
+
         
         if(pattern == frameData[833])
         {    

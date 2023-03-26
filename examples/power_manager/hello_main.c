@@ -40,10 +40,10 @@
 #define BOARD_GPIO_SW_1_DEV "/dev/gpio1"
 #define BOARD_GPIO_SW_2_DEV "/dev/gpio2"
 
-#define SW_POOL_INTERVAL 10 // 10ms
-#define SW_DEBOUNCE 2       // < 50ms
-#define SW_SHORT 20         // < 100ms
-#define SW_LONG 20          // > 200ms
+#define SW_POOL_INTERVAL 100 // 100ms
+#define SW_DEBOUNCE 2        // < 50ms
+#define SW_SHORT 5           // < 100ms
+#define SW_LONG 10           // > 200ms
 
 #define SW_BOUNCE 0
 #define SW_SHORT_PRESS 1
