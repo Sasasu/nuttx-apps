@@ -62,8 +62,9 @@
 
 #define TA_SHIFT 8
 float emissivity = 0.95;
-float temperatures[MLX90640_PIXEL_NUM] = {0};
+float temperatures_f[MLX90640_PIXEL_NUM] = {0};
 uint16_t temperatures_p[MLX90640_PIXEL_NUM] = {0};
+int32_t temperatures[MLX90640_PIXEL_NUM] = {0};
 int8_t addr = 0x33;
 uint16_t frame[834] = {};
 paramsMLX90640 params = {};
@@ -142,17 +143,48 @@ void init_fb(void) {
   memset(fb.fbmem, 0x00, fb.pinfo.fblen);
 }
 
-static inline uint32_t I(uint32_t p00, uint32_t p01, uint32_t p10, uint32_t p11,
+int32_t div_10_small(int32_t x) {
+  static const uint8_t t[] = {
+      0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,
+      1,  1,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  3,
+      3,  3,  3,  3,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  5,  5,  5,  5,
+      5,  5,  5,  5,  5,  5,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  7,  7,
+      7,  7,  7,  7,  7,  7,  7,  7,  8,  8,  8,  8,  8,  8,  8,  8,  8,  8,
+      9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  10, 10, 10, 10, 10, 10, 10, 10,
+      10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12,
+      12, 12, 12, 12, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14,
+      14, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 16, 16,
+      16, 16, 16, 16, 16, 16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+      18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 19, 19, 19, 19, 19, 19, 19, 19,
+      19, 19, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 21, 21, 21, 21, 21, 21,
+      21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22, 23, 23, 23, 23,
+      23, 23, 23, 23, 23, 23, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 25, 25,
+      25, 25, 25, 25, 25, 25, 25, 25, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26,
+      27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 28, 28, 28, 28, 28, 28, 28, 28,
+      28, 28, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 30, 30, 30, 30, 30, 30,
+      30, 30, 30, 30, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31};
+
+  if (x <= 320) {
+    return t[x];
+  }
+
+  return x / 10;
+}
+
+static inline uint16_t I(uint32_t p00, uint32_t p01, uint32_t p10, uint32_t p11,
                          int x, int y) {
-  const int32_t dx = 10;
-  const int32_t dy = 10;
-  int32_t dxx = dx - x;
-  int32_t dyy = dy - y;
+  const int8_t dx = 10;
+  const int8_t dy = 10;
+  int8_t dxx = dx - x;
+  int8_t dyy = dy - y;
 
   int32_t p0 = p00 * dxx * dyy + p10 * x * dyy;
   int32_t p1 = p01 * dxx * y + p11 * x * y;
   int32_t p = p0 + p1;
-  return p / (dx * dy);
+
+  p += p / 4;
+  p = p / 128;
+  return p;
 }
 
 static inline uint16_t get_t_3224(int x, int y) {
@@ -160,8 +192,8 @@ static inline uint16_t get_t_3224(int x, int y) {
 }
 
 static inline uint16_t get_t_320x240(int x, int y) {
-  int xx = x / 10;
-  int yy = y / 10;
+  int xx = div_10_small(x);
+  int yy = div_10_small(y);
   int offx = x - xx * 10;
   int offy = y - yy * 10;
   int xx1 = (xx + 1) >= 32 ? 31 : xx + 1;
@@ -187,7 +219,7 @@ void render_fb(void) {
   int maxid = 0, minid = 0;
   int maxX = 0, maxY = 0, minX = 0, minY = 0;
   for (int i = 0; i < (32 * 24); i++) {
-    float t = temperatures[i];
+    int t = temperatures[i];
     if (t > temperatures[maxid]) {
       maxid = i;
     }
@@ -197,19 +229,18 @@ void render_fb(void) {
   }
 
   maxX = maxid % 32;
-  maxY = maxid / 23;
+  maxY = maxid / 32;
   minX = minid % 32;
   minY = minid / 32;
 
-  float union_arg = (temperatures[maxid] - temperatures[minid]);
+  int32_t union_arg = (temperatures[maxid] - temperatures[minid]);
   for (int x = 0; x < 32; x++) {
     for (int y = 0; y < 24; y++) {
       int index = (32 * (23 - y) + x);
-      float t = temperatures[index];
 
-      int32_t X = ((t - temperatures[minid]) / union_arg) * 1024;
-      int32_t G = (INT16_MAX / 1024) * X;
-      temperatures_p[index] = G;
+      int32_t t = temperatures[index];
+      int32_t X = ((t - temperatures[minid]) * INT16_MAX) / union_arg;
+      temperatures_p[index] = X;
     }
   }
 
@@ -220,17 +251,17 @@ void render_fb(void) {
 
   uint16_t *screen = fb.fbmem;
   for (int x = 0; x < 320; x++) {
-#define STATUS_BG_COLOR 0x0000000
-    screen[320 * 0 + x] = STATUS_BG_COLOR;
-    screen[320 * 1 + x] = STATUS_BG_COLOR;
-    screen[320 * 2 + x] = STATUS_BG_COLOR;
-    screen[320 * 3 + x] = STATUS_BG_COLOR;
-    screen[320 * 4 + x] = STATUS_BG_COLOR;
-    screen[320 * 5 + x] = STATUS_BG_COLOR;
-    screen[320 * 6 + x] = STATUS_BG_COLOR;
-    screen[320 * 7 + x] = STATUS_BG_COLOR;
-    screen[320 * 8 + x] = STATUS_BG_COLOR;
-    screen[320 * 9 + x] = STATUS_BG_COLOR;
+#define STATUS_BG 0x0000000
+    screen[320 * 0 + x] = STATUS_BG;
+    screen[320 * 1 + x] = STATUS_BG;
+    screen[320 * 2 + x] = STATUS_BG;
+    screen[320 * 3 + x] = STATUS_BG;
+    screen[320 * 4 + x] = STATUS_BG;
+    screen[320 * 5 + x] = STATUS_BG;
+    screen[320 * 6 + x] = STATUS_BG;
+    screen[320 * 7 + x] = STATUS_BG;
+    screen[320 * 8 + x] = STATUS_BG;
+    screen[320 * 9 + x] = STATUS_BG;
 #define ABS(x) ((x) > 0 ? (x) : -(x))
     int rxmin = ABS(x - minX);
     int rxmax = ABS(x - maxX);
@@ -251,8 +282,8 @@ void render_fb(void) {
     static struct timespec last = {}, cuttent = {};
     clock_gettime(CLOCK_MONOTONIC, &cuttent);
     clock_timespec_subtract(&cuttent, &last, &last);
-    sprintf(b, "\1MAX %3.1fC \2MIN %3.1fC \3%2.1fHz", temperatures[maxid],
-            temperatures[minid],
+    sprintf(b, "\1MAX %3.1fC \2MIN %3.1fC \3%2.1fHz", temperatures_f[maxid],
+            temperatures_f[minid],
             1000.0 / (SEC_TO_MS(last.tv_sec) + NS_TO_MS(last.tv_nsec)));
     last = cuttent;
 
@@ -325,7 +356,7 @@ void render_stdout(void) {
   for (int x = 0; x < 32; x++) {
     fprintf(stdout, "\n %s", ANSI_COLOR_RESET);
     for (int y = 0; y < 24; y++) {
-      float t = temperatures[32 * y + x];
+      float t = temperatures_f[32 * y + x];
 
       if (t > 99.99)
         t = 99.99;
@@ -361,7 +392,7 @@ int main(int argc, FAR char *argv[]) {
     exit(-1);
   }
 
-  MLX90640_SetRefreshRate(addr, 0x05); // 0x06 = 32Hz, 0x07 = 64Hz
+  MLX90640_SetRefreshRate(addr, 0x04); // 0x06 = 32Hz, 0x07 = 64Hz
 
   ret = MLX90640_DumpEE(addr, frame);
   if (ret < 0) {
@@ -383,16 +414,20 @@ int main(int argc, FAR char *argv[]) {
   task_create("render", 101, 4096, fb_update, NULL);
 
   while (true) {
+
     for (int i = 0; i < 2; i++) {
       ret = MLX90640_GetFrameData(addr, frame);
       if (ret < 0) {
-        fprintf(stdout, "frame read %d page %d\n", errno, i);
+        fprintf(stdout, "frame read %d page 2\n", errno);
         exit(-1);
       }
-
       float ta = MLX90640_GetTa(frame, &params);
       MLX90640_CalculateTo(frame, &params, emissivity, ta - TA_SHIFT,
-                           temperatures);
+                           temperatures_f);
+
+      for (int x = 0; x < (32 * 24); x++) {
+        temperatures[x] = temperatures_f[x] * 1024; // [-40, 350]
+      }
 
       wakeup_render();
     }
