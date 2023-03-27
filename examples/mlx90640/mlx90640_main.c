@@ -366,7 +366,12 @@ void wakeup_render(void) { sem_post(&sem); }
 
 int fb_update(int _, char **__) {
   while (true) {
-    // sem_wait(&sem);
+    sem_wait(&sem);
+
+    for (int x = 0; x < (32 * 24); x++) {
+      temperatures[x] = temperatures_f[x] * 1024; // [-40, 350]
+    }
+
     render_fb();
   }
 
@@ -443,7 +448,7 @@ int main(int argc, FAR char *argv[]) {
     exit(-1);
   }
 
-  MLX90640_SetRefreshRate(addr, 0x06); // 0x06 = 32Hz, 0x07 = 64Hz
+  MLX90640_SetRefreshRate(addr, 0x05); // 0x06 = 32Hz, 0x07 = 64Hz
 
   ret = MLX90640_DumpEE(addr, frame);
   if (ret < 0) {
@@ -457,7 +462,7 @@ int main(int argc, FAR char *argv[]) {
     exit(-1);
   }
 
-  MLX90640_I2CFreqSet(1000);
+  MLX90640_I2CFreqSet(1200);
 
   init_fb();
 
@@ -470,16 +475,11 @@ int main(int argc, FAR char *argv[]) {
       fprintf(stdout, "frame read %d page 2\n", errno);
       exit(-1);
     }
+
     float ta = MLX90640_GetTa(frame, &params);
     MLX90640_CalculateTo(frame, &params, emissivity, ta - TA_SHIFT,
                          temperatures_f);
 
-    int subPage = frame[833];
-    for (int x = 0; x < (32 * 24); x++) {
-      if (update_in_page(x, subPage)) {
-        temperatures[x] = temperatures_f[x] * 1024; // [-40, 350]
-      }
-    }
     wakeup_render();
   }
 
