@@ -185,7 +185,7 @@ void div_10_small(int32_t x, int *r, int *d) {
   *d = b[1];
 }
 
-static inline uint16_t I(uint32_t p00, uint32_t p01, uint32_t p10, uint32_t p11,
+static inline uint32_t I(uint32_t p00, uint32_t p01, uint32_t p10, uint32_t p11,
                          int x, int y) {
   const int8_t dx = 10;
   const int8_t dy = 10;
@@ -196,8 +196,6 @@ static inline uint16_t I(uint32_t p00, uint32_t p01, uint32_t p10, uint32_t p11,
   int32_t p1 = p01 * dxx * y + p11 * x * y;
   int32_t p = p0 + p1;
 
-  p += p / 4;
-  p = p / 128;
   return p;
 }
 
@@ -226,18 +224,20 @@ static inline uint16_t get_t_320x240(int x, int y) {
     ix1y1 -= 32;
   }
 
+  // 16bit grayscale
   uint16_t X0Y0 = temperatures_p[ix0y0];
   uint16_t X1Y0 = temperatures_p[ix1y0];
   uint16_t X0Y1 = temperatures_p[ix0y1];
   uint16_t X1Y1 = temperatures_p[ix1y1];
 
+  // 16bit * 100 grayscale
   uint32_t g = I(X0Y0, X0Y1, X1Y0, X1Y1, offx, offy);
 
-  g = (g * 0b11111 / INT16_MAX);
-  if (g > 0b11111)
-    g = 0b11111;
+  // to 5bit grayscale
+  g = g >> 17;
+  g += g / 4;
 
-  g &= 0b11111;
+  g = g & 0b11111;
 
   return g << 11 | g << 6 | g;
 }
