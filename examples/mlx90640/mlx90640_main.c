@@ -219,7 +219,39 @@ int maxid = 0, minid = 0;
 int maxX = 0, maxY = 0, minX = 0, minY = 0;
 
 void render_fb(void) {
+
   uint16_t *screen = fb.fbmem;
+  for (int ii = 0; ii < (32 * 24); ii++) {
+    int t = temperatures[ii];
+    if (t > temperatures[maxid]) {
+      maxid = ii;
+    }
+    if (t < temperatures[minid]) {
+      minid = ii;
+    }
+  }
+
+  maxX = maxid % 32;
+  maxY = maxid / 32;
+  minX = minid % 32;
+  minY = minid / 32;
+
+  int32_t union_arg = (temperatures[maxid] - temperatures[minid]);
+  for (int x = 0; x < 32; x++) {
+    for (int y = 0; y < 24; y++) {
+      int index = (32 * (23 - y) + x);
+
+      int32_t t = temperatures[index];
+      int32_t X = ((t - temperatures[minid]) * INT16_MAX) / union_arg;
+      temperatures_p[index] = X;
+    }
+  }
+
+  maxX = maxX * 10;
+  maxY = (23 - maxY) * 10;
+  minX = minX * 10;
+  minY = (23 - minY) * 10;
+
   for (int x = 0; x < 320; x++) {
 #define STATUS_BG 0x0000000
     screen[320 * 0 + x] = STATUS_BG;
@@ -307,7 +339,7 @@ void wakeup_render(void) { sem_post(&sem); }
 
 int fb_update(int _, char **__) {
   while (true) {
-    sem_wait(&sem);
+    // sem_wait(&sem);
     render_fb();
   }
 
@@ -384,7 +416,7 @@ int main(int argc, FAR char *argv[]) {
     exit(-1);
   }
 
-  MLX90640_SetRefreshRate(addr, 0x04); // 0x06 = 32Hz, 0x07 = 64Hz
+  MLX90640_SetRefreshRate(addr, 0x06); // 0x06 = 32Hz, 0x07 = 64Hz
 
   ret = MLX90640_DumpEE(addr, frame);
   if (ret < 0) {
@@ -398,7 +430,7 @@ int main(int argc, FAR char *argv[]) {
     exit(-1);
   }
 
-  MLX90640_I2CFreqSet(1200);
+  MLX90640_I2CFreqSet(1000);
 
   init_fb();
 
@@ -406,63 +438,22 @@ int main(int argc, FAR char *argv[]) {
   task_create("render", 101, 4096, fb_update, NULL);
 
   while (true) {
-
-    for (int i = 0; i < 2; i++) {
-      ret = MLX90640_GetFrameData(addr, frame);
-      if (ret < 0) {
-        fprintf(stdout, "frame read %d page 2\n", errno);
-        exit(-1);
-      }
-      float ta = MLX90640_GetTa(frame, &params);
-      MLX90640_CalculateTo(frame, &params, emissivity, ta - TA_SHIFT,
-                           temperatures_f);
-
-      int subPage = frame[833];
-      for (int x = 0; x < (32 * 24); x++) {
-        if (update_in_page(x, subPage)) {
-          temperatures[x] = temperatures_f[x] * 1024; // [-40, 350]
-        }
-      }
-
-      for (int ii = 0; ii < (32 * 24); ii++) {
-        if (!update_in_page(ii, subPage)) {
-          continue;
-        }
-        int t = temperatures[ii];
-        if (t > temperatures[maxid]) {
-          maxid = ii;
-        }
-        if (t < temperatures[minid]) {
-          minid = ii;
-        }
-      }
-
-      maxX = maxid % 32;
-      maxY = maxid / 32;
-      minX = minid % 32;
-      minY = minid / 32;
-
-      int32_t union_arg = (temperatures[maxid] - temperatures[minid]);
-      for (int x = 0; x < 32; x++) {
-        for (int y = 0; y < 24; y++) {
-          int index = (32 * (23 - y) + x);
-          if (!update_in_page(index, subPage)) {
-            continue;
-          }
-
-          int32_t t = temperatures[index];
-          int32_t X = ((t - temperatures[minid]) * INT16_MAX) / union_arg;
-          temperatures_p[index] = X;
-        }
-      }
-
-      maxX = maxX * 10;
-      maxY = (23 - maxY) * 10;
-      minX = minX * 10;
-      minY = (23 - minY) * 10;
-
-      wakeup_render();
+    ret = MLX90640_GetFrameData(addr, frame);
+    if (ret < 0) {
+      fprintf(stdout, "frame read %d page 2\n", errno);
+      exit(-1);
     }
+    float ta = MLX90640_GetTa(frame, &params);
+    MLX90640_CalculateTo(frame, &params, emissivity, ta - TA_SHIFT,
+                         temperatures_f);
+
+    int subPage = frame[833];
+    for (int x = 0; x < (32 * 24); x++) {
+      if (update_in_page(x, subPage)) {
+        temperatures[x] = temperatures_f[x] * 1024; // [-40, 350]
+      }
+    }
+    wakeup_render();
   }
 
   return 0;
