@@ -199,10 +199,6 @@ static inline uint32_t I(uint32_t p00, uint32_t p01, uint32_t p10, uint32_t p11,
   return p;
 }
 
-static inline uint16_t get_t_3224(int x, int y) {
-  return temperatures_p[32 * (23 - y) + x];
-}
-
 static inline uint16_t get_t_320x240(int x, int y) {
   int xx, offx;
   div_10_small(x, &xx, &offx);
@@ -210,18 +206,18 @@ static inline uint16_t get_t_320x240(int x, int y) {
   div_10_small(y, &yy, &offy);
 
   int ix0y0 = 32 * (23 - yy) + xx;
-  int ix1y0 = ix0y0;
-  int ix0y1 = ix0y0;
-  int ix1y1 = ix0y0;
+  int ix1y0 = ix0y0 + 1;
+  int ix0y1 = ix0y0 - 32;
+  int ix1y1 = ix0y0 + 1 - 32;
 
-  if (xx != 31) {
-    ix1y0 += 1;
-    ix1y1 += 1;
+  if (xx == 31) {
+    ix1y0 -= 1;
+    ix1y1 -= 1;
   }
 
-  if (yy != 23) {
-    ix0y1 -= 32;
-    ix1y1 -= 32;
+  if (yy == 23) {
+    ix0y1 += 32;
+    ix1y1 += 32;
   }
 
   // 16bit grayscale
@@ -237,7 +233,10 @@ static inline uint16_t get_t_320x240(int x, int y) {
   g = g >> 17;
   g += g / 4;
 
-  g = g & 0b11111;
+  if (g > 0b11111)
+    g = 0b11111;
+  else
+    g &= 0b11111;
 
   return g << 11 | g << 6 | g;
 }
@@ -462,7 +461,7 @@ int main(int argc, FAR char *argv[]) {
     exit(-1);
   }
 
-  MLX90640_I2CFreqSet(1200);
+  MLX90640_I2CFreqSet(9500);
 
   init_fb();
 
@@ -473,7 +472,10 @@ int main(int argc, FAR char *argv[]) {
     ret = MLX90640_GetFrameData(addr, frame);
     if (ret < 0) {
       fprintf(stdout, "frame read %d page 2\n", errno);
-      exit(-1);
+      MLX90640_I2CGeneralReset();
+      MLX90640_SetRefreshRate(addr, 0x05); // 0x06 = 32Hz, 0x07 = 64Hz
+      usleep(500);
+      continue;
     }
 
     float ta = MLX90640_GetTa(frame, &params);

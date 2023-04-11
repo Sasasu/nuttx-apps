@@ -30,6 +30,7 @@
 
 #include <nuttx/config.h>
 #include <nuttx/ioexpander/gpio.h>
+#include <nuttx/timers/watchdog.h>
 
 /****************************************************************************
  * Public Functions
@@ -39,6 +40,7 @@
 #define BOARD_GPIO_LED_PIN_DEV "/dev/gpio25"
 #define BOARD_GPIO_SW_1_DEV "/dev/gpio1"
 #define BOARD_GPIO_SW_2_DEV "/dev/gpio2"
+#define BOARD_WATCHDOG_DEV "/dev/watchdog0"
 
 #define SW_POOL_INTERVAL 100 // 100ms
 #define SW_DEBOUNCE 2        // < 50ms
@@ -136,10 +138,16 @@ void sw2(void) {
 }
 
 int main(int argc, FAR char *argv[]) {
+  int watchdog = open(BOARD_WATCHDOG_DEV, O_RDWR);
+  ioctl(watchdog, WDIOC_SETTIMEOUT, (unsigned long)10000);
+  ioctl(watchdog, WDIOC_START, 0);
+
   init_gpio();
 
   while (true) {
     usleep(100 * SW_POOL_INTERVAL);
+
+    ioctl(watchdog, WDIOC_KEEPALIVE, 0);
 
     sw1();
     sw2();
